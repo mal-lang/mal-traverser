@@ -1,0 +1,227 @@
+{
+  "metadata": {
+    "name": "Test Model",
+    "langVersion": "1.0.0",
+    "langID": "org.mal-lang.coreLang",
+    "malVersion": "0.1.0-SNAPSHOT",
+    "info": "Created by the mal-toolbox model python module."
+  },
+  "assets": {
+    "0": {
+      "name": "OS App",
+      "metaconcept": "Application",
+      "eid": "0",
+      "defenses": {}
+    },
+    "1": {
+      "name": "Program 1",
+      "metaconcept": "Application",
+      "eid": "1",
+      "defenses": {
+        "notPresent": "1.0"
+      }
+    },
+    "2": {
+      "name": "Program 2",
+      "metaconcept": "Application",
+      "eid": "2",
+      "defenses": {}
+    },
+    "3": {
+      "name": "SoftwareVulnerability:3",
+      "metaconcept": "SoftwareVulnerability",
+      "eid": "3",
+      "defenses": {
+        "lowPrivilegesRequired": "1.0",
+        "availabilityImpactLimitations": "1.0"
+      }
+    },
+    "4": {
+      "name": "Data:4",
+      "metaconcept": "Data",
+      "eid": "4",
+      "defenses": {}
+    },
+    "5": {
+      "name": "Credentials:5",
+      "metaconcept": "Credentials",
+      "eid": "5",
+      "defenses": {
+        "unique": "0.0"
+      }
+    },
+    "6": {
+      "name": "Credentials:6",
+      "metaconcept": "Credentials",
+      "eid": "6",
+      "defenses": {
+        "unique": "0.0"
+      }
+    },
+    "7": {
+      "name": "Identity:7",
+      "metaconcept": "Identity",
+      "eid": "7",
+      "defenses": {}
+    },
+    "8": {
+      "name": "Credentials:8",
+      "metaconcept": "Credentials",
+      "eid": "8",
+      "defenses": {
+        "unique": "0.0"
+      }
+    },
+    "9": {
+      "name": "Credentials:9",
+      "metaconcept": "Credentials",
+      "eid": "9",
+      "defenses": {}
+    },
+    "10": {
+      "name": "Identity:10",
+      "metaconcept": "Identity",
+      "eid": "10",
+      "defenses": {}
+    },
+    "11": {
+      "name": "User:11",
+      "metaconcept": "User",
+      "eid": "11",
+      "defenses": {
+        "noPasswordReuse": "0.0"
+      }
+    }
+  },
+  "associations": [
+    {
+      "metaconcept": "AppExecution",
+      "association": {
+        "hostApp": [
+          "0"
+        ],
+        "appExecutedApps": [
+          "1",
+          "2"
+        ]
+      }
+    },
+    {
+      "metaconcept": "ApplicationVulnerability_SoftwareVulnerability_Application",
+      "association": {
+        "vulnerabilities": [
+          "3"
+        ],
+        "application": [
+          "2"
+        ]
+      }
+    },
+    {
+      "metaconcept": "AppContainment",
+      "association": {
+        "containedData": [
+          "4"
+        ],
+        "containingApp": [
+          "2"
+        ]
+      }
+    },
+    {
+      "metaconcept": "EncryptionCredentials",
+      "association": {
+        "encryptCreds": [
+          "5"
+        ],
+        "encryptedData": [
+          "4"
+        ]
+      }
+    },
+    {
+      "metaconcept": "ConditionalAuthentication",
+      "association": {
+        "credentials": [
+          "5"
+        ],
+        "requiredFactors": [
+          "6"
+        ]
+      }
+    },
+    {
+      "metaconcept": "IdentityCredentials",
+      "association": {
+        "identities": [
+          "7"
+        ],
+        "credentials": [
+          "5"
+        ]
+      }
+    },
+    {
+      "metaconcept": "IdentityCredentials",
+      "association": {
+        "identities": [
+          "10"
+        ],
+        "credentials": [
+          "8",
+          "9"
+        ]
+      }
+    },
+    {
+      "metaconcept": "UserAssignedIdentities",
+      "association": {
+        "users": [
+          "11"
+        ],
+        "userIds": [
+          "7",
+          "10"
+        ]
+      }
+    }
+  ],
+  "attackers": {
+    "12": {
+      "name": "Attacker:12",
+      "entry_points": {
+        "5": {
+          "attack_steps": [
+            "attemptCredentialsReuse"
+          ]
+        },
+        "6": {
+          "attack_steps": [
+            "attemptCredentialsReuse",
+            "guessCredentials"
+          ]
+        },
+        "0": {
+          "attack_steps": [
+            "softwareProductAbuse"
+          ]
+        },
+        "8": {
+          "attack_steps": [
+            "attemptCredentialsReuse"
+          ]
+        }
+      }
+    },
+    "13": {
+      "name": "Attacker:13",
+      "entry_points": {
+        "9": {
+          "attack_steps": [
+            "attemptCredentialsReuse"
+          ]
+        }
+      }
+    }
+  }
+}
