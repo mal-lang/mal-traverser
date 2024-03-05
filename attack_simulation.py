@@ -86,7 +86,6 @@ class AttackSimulation:
         Parameters:
         - neo4j_graph_connection: The Neo4j Graph instance.
         """
-        self.attacker.reached_attack_steps = [self.attackgraph_dictionary[self.start_node]]
         self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
         self.visited = self.attacker.reached_attack_steps
 
@@ -119,10 +118,11 @@ class AttackSimulation:
                 # Update horizon if the node can be visited.
                 if attacked_node in self.horizon:
                     # Update the path.
-                    self.attacker.reached_attack_steps.append(attacked_node)
+                    self.attacker.compromise(attacked_node)
                     self.visited = self.attacker.reached_attack_steps
                     self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
-                    self.horizon = [node for node in self.horizon if node != attacked_node]
+                    self.horizon = [node for node in self.horizon \
+                        if self.attacker not in node.compromised_by]
                    
                     # Upload attacker path and horizon.
                     self.upload_graph_to_neo4j(neo4j_graph_connection, add_horizon=True)
@@ -243,7 +243,7 @@ class AttackSimulation:
                         came_from[neighbor.id].append(current_node)
                         g_score[neighbor.id] = tentative_g_score
                         f_score[neighbor.id] = tentative_g_score + h_score[neighbor.id] # TODO calculate the h_score for all nodes
-                        self.attacker.reached_attack_steps.append(neighbor)
+                        self.attacker.compromise(neighbor)
                         if neighbor.id not in open_set:
                             heapq.heappush(open_set, (f_score[neighbor.id], neighbor.id))
 
@@ -373,7 +373,7 @@ class AttackSimulation:
                 self.path[parent_node_id].append(node)
                 self.visited.append(node)
                 visited_set.add(node.id)
-                self.attacker.reached_attack_steps.append(node)
+                self.attacker.compromise(node)
                 cost += costs[node.id]
 
                 # Check if the target node was selected (if the target node was specified).
