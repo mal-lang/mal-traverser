@@ -329,7 +329,7 @@ class AttackSimulation:
         cost_dictionary = {}
         for attackgraph_node in self.attackgraph_instance.nodes:
             ttc = attackgraph_node.ttc
-            if ttc == None:
+            if ttc == None or ttc == {}:
                 cost_dictionary[attackgraph_node.id] = 0
             elif ttc != None:
                 cost_dictionary[attackgraph_node.id] = help_functions.cost_from_ttc(ttc, 100)
