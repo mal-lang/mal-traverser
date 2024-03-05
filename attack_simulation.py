@@ -67,21 +67,6 @@ class AttackSimulation:
         print(f"{constants.RED}Attacker Horizon{constants.STANDARD}")
         help_functions.print_dictionary(attack_surface_dict)
 
-    def add_children_to_horizon(self, node):
-        """
-        Add the horizon nodes to the set of visited nodes.
-
-        This method iterates over the children of the given node, adding each child's
-        ID to the set of visited nodes (self.visited) if it is not already present in the set.
-
-        Parameters:
-        - node: The AttackGraphNode whose children are to be added to the horizon.
-
-        """
-        for child in node.children:
-            if child.id not in self.visited:
-                self.horizon.add(child.id)
-
     def build_attack_surface_dict(self):
         """
         Build a dictionary with an integer as keys and Node ID:s as values.
