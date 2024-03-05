@@ -67,21 +67,6 @@ class AttackSimulation:
         print(f"{constants.RED}Attacker Horizon{constants.STANDARD}")
         help_functions.print_dictionary(attack_surface_dict)
 
-    def add_children_to_horizon(self, node):
-        """
-        Add the horizon nodes to the set of visited nodes.
-
-        This method iterates over the children of the given node, adding each child's
-        ID to the set of visited nodes (self.visited) if it is not already present in the set.
-
-        Parameters:
-        - node: The AttackGraphNode whose children are to be added to the horizon.
-
-        """
-        for child in node.children:
-            if child.id not in self.visited:
-                self.horizon.add(child.id)
-
     def build_attack_surface_dict(self):
         """
         Build a dictionary with an integer as keys and Node ID:s as values.
@@ -101,7 +86,6 @@ class AttackSimulation:
         Parameters:
         - neo4j_graph_connection: The Neo4j Graph instance.
         """
-        self.attacker.reached_attack_steps = [self.attackgraph_dictionary[self.start_node]]
         self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
         self.visited = self.attacker.reached_attack_steps
 
@@ -134,10 +118,11 @@ class AttackSimulation:
                 # Update horizon if the node can be visited.
                 if attacked_node in self.horizon:
                     # Update the path.
-                    self.attacker.reached_attack_steps.append(attacked_node)
+                    self.attacker.compromise(attacked_node)
                     self.visited = self.attacker.reached_attack_steps
                     self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
-                    self.horizon = [node for node in self.horizon if node != attacked_node]
+                    self.horizon = [node for node in self.horizon \
+                        if self.attacker not in node.compromised_by]
                    
                     # Upload attacker path and horizon.
                     self.upload_graph_to_neo4j(neo4j_graph_connection, add_horizon=True)
@@ -258,7 +243,7 @@ class AttackSimulation:
                         came_from[neighbor.id].append(current_node)
                         g_score[neighbor.id] = tentative_g_score
                         f_score[neighbor.id] = tentative_g_score + h_score[neighbor.id] # TODO calculate the h_score for all nodes
-                        self.attacker.reached_attack_steps.append(neighbor)
+                        self.attacker.compromise(neighbor)
                         if neighbor.id not in open_set:
                             heapq.heappush(open_set, (f_score[neighbor.id], neighbor.id))
 
@@ -344,7 +329,7 @@ class AttackSimulation:
         cost_dictionary = {}
         for attackgraph_node in self.attackgraph_instance.nodes:
             ttc = attackgraph_node.ttc
-            if ttc == None:
+            if ttc == None or ttc == {}:
                 cost_dictionary[attackgraph_node.id] = 0
             elif ttc != None:
                 cost_dictionary[attackgraph_node.id] = help_functions.cost_from_ttc(ttc, 100)
@@ -388,7 +373,7 @@ class AttackSimulation:
                 self.path[parent_node_id].append(node)
                 self.visited.append(node)
                 visited_set.add(node.id)
-                self.attacker.reached_attack_steps.append(node)
+                self.attacker.compromise(node)
                 cost += costs[node.id]
 
                 # Check if the target node was selected (if the target node was specified).
