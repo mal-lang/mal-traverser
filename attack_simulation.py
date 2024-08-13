@@ -1,6 +1,7 @@
 import maltoolbox.attackgraph.query
 import maltoolbox
 import maltoolbox.attackgraph.attackgraph
+from maltoolbox.attackgraph import Attacker, AttackGraph
 from py2neo import Node, Relationship
 from collections import deque
 import heapq
@@ -11,7 +12,7 @@ import constants
 
 class AttackSimulation:
     
-    def __init__(self, attackgraph_instance, attacker, use_ttc=True):
+    def __init__(self, attackgraph_instance: AttackGraph, attacker: Attacker, use_ttc=True):
         """
         Initialize the AttackSimulation instance.
 
@@ -86,7 +87,7 @@ class AttackSimulation:
         Parameters:
         - neo4j_graph_connection: The Neo4j Graph instance.
         """
-        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
+        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
         self.visited = self.attacker.reached_attack_steps
 
         # Add all children nodes to the path attribute.     
@@ -120,7 +121,7 @@ class AttackSimulation:
                     # Update the path.
                     self.attacker.compromise(attacked_node)
                     self.visited = self.attacker.reached_attack_steps
-                    self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
+                    self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
                     self.horizon = [node for node in self.horizon \
                         if self.attacker not in node.compromised_by]
                    
@@ -348,7 +349,7 @@ class AttackSimulation:
         """
         self.attacker.reached_attack_steps = [self.attackgraph_dictionary[self.start_node]]
         self.visited = self.attacker.reached_attack_steps
-        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)       
+        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
         horizon_set = {node.id for node in self.horizon}
         visited_set = {node.id for node in self.visited}
 
@@ -381,7 +382,7 @@ class AttackSimulation:
                     break
                 
                 # Update attack surface.
-                self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
+                self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
                 horizon_set = {node.id for node in self.horizon}
         return cost
 

@@ -26,6 +26,6 @@ USERNAME = "neo4j"
 PASSWORD = "mgg12345!"
 DBNAME = "neo4j"
 
-MODEL_FILE = "assets/model.json"
+MODEL_FILE = "assets/model_0.1.6.json"
 COST_FILE = "assets/costs.json"
 MAR_ARCHIVE = "assets/org.mal-lang.coreLang-1.0.0.mar"
