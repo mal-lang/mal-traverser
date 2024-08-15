@@ -1,7 +1,7 @@
 import maltoolbox.attackgraph.query
 import maltoolbox
 import maltoolbox.attackgraph.attackgraph
-from maltoolbox.attackgraph import Attacker, AttackGraph
+from maltoolbox.attackgraph import Attacker, AttackGraph, AttackGraphNode
 from py2neo import Node, Relationship
 from collections import deque
 import heapq
@@ -21,17 +21,37 @@ class AttackSimulation:
         - attacker: An instance of the Attacker class.
         - use_ttc: Boolean indicating whether Time-To-Compromise (TTC) is used. Default is True.
         """
+
+        attacker_node = AttackGraphNode(
+                type = 'or',
+                asset = None,
+                name = 'firstSteps',
+                ttc = {},
+                children = attacker.entry_points,
+                parents = [],
+                compromised_by = []
+        )
+        attackgraph_instance.add_node(attacker_node)
         self.attackgraph_instance = attackgraph_instance
-        self.attackgraph_dictionary = {node.id: node for node in attackgraph_instance.nodes}  # Create a dictionary for quick access to nodes by id
+
+        # Create a dictionary for quick access to nodes by id
+        self.attackgraph_dictionary = {
+            node.id: node for node in attackgraph_instance.nodes
+        }
         self.attacker = attacker
-        self.start_node = attacker.node.id
+        self.start_node = attacker_node.id
         self.target_node = None
         self.attacker_cost_budget = None
         self.use_ttc = use_ttc
         self.horizon = []
         self.visited = []
         self.path = {node.id: [] for node in attackgraph_instance.nodes}
-        self.cost_dictionary = self.get_costs()
+
+        full_name_to_cost = self.get_costs()
+        self.id_to_cost = {
+            attackgraph_instance.get_node_by_full_name(full_name).id: cost
+            for full_name, cost in full_name_to_cost.items()
+        }
 
     def set_target_node(self, target_node_id):
         """
@@ -149,7 +169,7 @@ class AttackSimulation:
                     full_name = node.id,
                     type = node.type,
                     ttc = str(node.ttc),
-                    cost = str(self.cost_dictionary[node.id]) if node.name != "firstSteps" else None,
+                    cost = str(self.id_to_cost[node.id]) if node.name != "firstSteps" else None,
                     is_necessary = str(node.is_necessary),
                     is_viable = str(node.is_viable),
                 )
@@ -219,7 +239,7 @@ class AttackSimulation:
         f_score = dict.fromkeys(node_ids, 0)
         f_score[self.start_node] = h_score[self.start_node]
         
-        costs = self.cost_dictionary
+        costs = self.id_to_cost
         costs_copy = costs.copy()
         current_node = self.start_node
         while len(open_set) > 0:
@@ -228,12 +248,12 @@ class AttackSimulation:
 
             # Stop when target node is found.
             if current_node == self.target_node:
-                self.cost_dictionary = costs_copy
+                self.id_to_cost = costs_copy
                 return self.reconstruct_path(came_from, current_node, costs_copy)[0]
 
             # Iterate over the attack surface nodes.
             current_neighbors = self.attackgraph_dictionary[current_node].children
-            for neighbor in current_neighbors:  
+            for neighbor in current_neighbors:
                 tentative_g_score = g_score[current_node] + costs[neighbor.id]
 
                 # Try the neighbor node with a lower g_score than the previous node.
@@ -353,7 +373,7 @@ class AttackSimulation:
         horizon_set = {node.id for node in self.horizon}
         visited_set = {node.id for node in self.visited}
 
-        costs = self.cost_dictionary
+        costs = self.id_to_cost
         cost = 0
         while len(horizon_set-visited_set) > 0:
             node = random.choice(list(self.horizon))
@@ -402,7 +422,7 @@ class AttackSimulation:
         node = self.attackgraph_dictionary[self.start_node]
         queue = deque([(node, 0)])  
         self.visited = [node]
-        costs = self.cost_dictionary
+        costs = self.id_to_cost
         while queue:
             node, cost = queue.popleft()
             # Explore the horizon of the current node.
