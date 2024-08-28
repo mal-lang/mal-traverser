@@ -19,7 +19,7 @@ def print_dictionary(dict):
         if type(description) == list:
             description_str = ""
             for elem in description:
-                description_str += elem + " "
+                description_str += str(elem) + " "
             description = description_str
         print(f"{constants.BOLD}", description)
     print(f"{constants.STANDARD}",end="")

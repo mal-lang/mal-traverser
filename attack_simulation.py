@@ -97,7 +97,7 @@ class AttackSimulation:
         """
         dict = {}
         for i, node in enumerate(self.horizon):
-            dict[i+1] = [node.id, node.type, str(maltoolbox.attackgraph.query.is_node_traversable_by_attacker(node, self.attacker))]
+            dict[i+1] = [node.id, node.type, node.full_name, str(maltoolbox.attackgraph.query.is_node_traversable_by_attacker(node, self.attacker))]
         return dict
 
     def step_by_step_attack_simulation(self, neo4j_graph_connection):
@@ -159,7 +159,7 @@ class AttackSimulation:
     def create_neo4j_node(self, neo4j_graph_connection, set_of_nodes, neo4j_node_dict, is_horizon_node=False):
         for node in set_of_nodes:
             if not node.id in neo4j_node_dict.keys():
-                asset_and_id = node.id.split(':')
+                asset_and_id = node.full_name.split(':')
                 asset_and_id = asset_and_id[0] + ':' + asset_and_id[1]
                 neo4j_node = Node(
                     str(asset_and_id),
