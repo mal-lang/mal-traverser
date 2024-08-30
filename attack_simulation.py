@@ -1,6 +1,12 @@
-import maltoolbox.attackgraph.query
+from dataclasses import dataclass, field
+
+from maltoolbox.attackgraph.query import (
+    get_attack_surface,
+    is_node_traversable_by_attacker
+)
 import maltoolbox
 import maltoolbox.attackgraph.attackgraph
+
 from maltoolbox.attackgraph import Attacker, AttackGraph, AttackGraphNode
 from py2neo import Node, Relationship
 from collections import deque
@@ -12,7 +18,12 @@ import constants
 
 class AttackSimulation:
     
-    def __init__(self, attackgraph_instance: AttackGraph, attacker: Attacker, use_ttc=True):
+    def __init__(
+            self,
+            attackgraph_instance: AttackGraph,
+            use_ttc=True,
+            costs=None
+        ):
         """
         Initialize the AttackSimulation instance.
 
@@ -22,32 +33,19 @@ class AttackSimulation:
         - use_ttc: Boolean indicating whether Time-To-Compromise (TTC) is used. Default is True.
         """
 
-        attacker_node = AttackGraphNode(
-                type = 'or',
-                asset = None,
-                name = 'firstSteps',
-                ttc = {},
-                children = attacker.entry_points,
-                parents = [],
-                compromised_by = []
-        )
-        attackgraph_instance.add_node(attacker_node)
         self.attackgraph_instance = attackgraph_instance
 
         # Create a dictionary for quick access to nodes by id
         self.attackgraph_dictionary = {
             node.id: node for node in attackgraph_instance.nodes
         }
-        self.attacker = attacker
-        self.start_node = attacker_node.id
-        self.target_node = None
-        self.attacker_cost_budget = None
+
         self.use_ttc = use_ttc
         self.horizon = []
         self.visited = []
         self.path = {node.id: [] for node in attackgraph_instance.nodes}
 
-        full_name_to_cost = self.get_costs()
+        full_name_to_cost = costs or self.get_costs()
         self.id_to_cost = {
             attackgraph_instance.get_node_by_full_name(full_name).id: cost
             for full_name, cost in full_name_to_cost.items()
@@ -97,7 +95,8 @@ class AttackSimulation:
         """
         dict = {}
         for i, node in enumerate(self.horizon):
-            dict[i+1] = [node.id, node.type, node.full_name, str(maltoolbox.attackgraph.query.is_node_traversable_by_attacker(node, self.attacker))]
+            dict[i+1] = [node.id, node.type, node.full_name, str(
+                is_node_traversable_by_attacker(node, self.attacker))]
         return dict
 
     def step_by_step_attack_simulation(self, neo4j_graph_connection):
@@ -141,7 +140,7 @@ class AttackSimulation:
                     # Update the path.
                     self.attacker.compromise(attacked_node)
                     self.visited = self.attacker.reached_attack_steps
-                    self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
+                    self.horizon = get_attack_surface(self.attacker)
                     self.horizon = [node for node in self.horizon \
                         if self.attacker not in node.compromised_by]
                    
@@ -213,7 +212,12 @@ class AttackSimulation:
                             relationship = Relationship(from_node, "Relationship", to_node)
                             neo4j_graph_connection.create(relationship)
     
-    def dijkstra(self):
+    def dijkstra(
+            self,
+            attack_graph: AttackGraph,
+            source_node: AttackGraphNode,
+            target_node: AttackGraphNode
+        ):
         """
         Find the shortest path between two nodes using Dijkstra's algorithm with added 
         conditions for processing 'and' nodes.
@@ -222,66 +226,98 @@ class AttackSimulation:
         Returns:
         - cost: Total cost of the path.
         """
-        node_ids = list(self.attackgraph_dictionary.keys())
+
+        @dataclass(frozen=True, order=True)
+        class PriorityNode():
+            """Priority node"""
+            priority: int
+            node: AttackGraphNode = field(compare=False)
+
+            def __hash__(self):
+                return hash((self.node.id))
+
+        node_ids = [n.id for n in attack_graph.nodes]
         open_set = []
-        heapq.heappush(open_set, (0, self.start_node))
+        open_set_node_ids = set()
+
+        heapq.heappush(open_set, PriorityNode(0, source_node))
+        open_set_node_ids.add(source_node.id)
+
         came_from = {key: [] for key in node_ids}
 
         # The g_score is a map with large values.
         g_score = dict.fromkeys(node_ids, 10000)
-        g_score[self.start_node] = 0
+        g_score[source_node.id] = 0
 
-        # Estimated score between each node and target.
-        h_score = dict.fromkeys(node_ids, 0)
-    
         # For node n, f_score[n] = g_score[n] + h_score(n). f_score[n] represents our current best guess as to
         # how cheap a path could be from start to finish if it goes through n.
         f_score = dict.fromkeys(node_ids, 0)
-        f_score[self.start_node] = h_score[self.start_node]
-        
+
         costs = self.id_to_cost
         costs_copy = costs.copy()
-        current_node = self.start_node
+        current_node = source_node
+
+        attacker = Attacker("DijkstraAttacker")
+        attack_graph.add_attacker(attacker)
+        attacker.compromise(source_node)
+
+
         while len(open_set) > 0:
+
             # The current_node is the node in open_set having the lowest f_score value.
-            _, current_node = heapq.heappop(open_set)
+            current_priority_node = heapq.heappop(open_set)
+            current_node = current_priority_node.node
+            open_set_node_ids.remove(current_node.id)
 
             # Stop when target node is found.
-            if current_node == self.target_node:
+            if current_node == target_node:
                 self.id_to_cost = costs_copy
-                return self.reconstruct_path(came_from, current_node, costs_copy)[0]
+                return self.reconstruct_path(
+                    came_from, current_node, source_node, costs_copy
+                )[0]
 
             # Iterate over the attack surface nodes.
-            current_neighbors = self.attackgraph_dictionary[current_node].children
-            for neighbor in current_neighbors:
-                tentative_g_score = g_score[current_node] + costs[neighbor.id]
+            for child in current_node.children:
+                tentative_g_score = g_score[current_node.id] + costs[child.id]
 
-                # Try the neighbor node with a lower g_score than the previous node.
-                if tentative_g_score < g_score[neighbor.id]:
+                # Try the child node with a lower g_score than the previous node.
+                if tentative_g_score < g_score[child.id]:
 
                     # Add the node to the path.
-                    if maltoolbox.attackgraph.query.is_node_traversable_by_attacker(neighbor, self.attacker):
-                        came_from[neighbor.id].append(current_node)
-                        g_score[neighbor.id] = tentative_g_score
-                        f_score[neighbor.id] = tentative_g_score + h_score[neighbor.id] # TODO calculate the h_score for all nodes
-                        self.attacker.compromise(neighbor)
-                        if neighbor.id not in open_set:
-                            heapq.heappush(open_set, (f_score[neighbor.id], neighbor.id))
+                    if is_node_traversable_by_attacker(child, attacker):
+                        came_from[child.id].append(current_node)
+                        g_score[child.id] = tentative_g_score
+                        f_score[child.id] = tentative_g_score
+                        attacker.compromise(child)
+
+                        if child.id not in open_set_node_ids:
+                            heapq.heappush(
+                                open_set,
+                                PriorityNode(f_score[child.id], child)
+                            )
+                            open_set_node_ids.add(child.id)
+
 
                     # If 'and' node was not added to the path,
                     # update the node cost and keep track of the path.
-                    elif neighbor.type == 'and':
-                        costs[neighbor.id] = tentative_g_score
-                        came_from[neighbor.id].append(current_node)
+                    elif child.type == 'and':
+                        costs[child.id] = tentative_g_score
+                        came_from[child.id].append(current_node)
 
                 # If a necessary 'and' node was not added to the path and g_scores are equal,
                 # update the node cost and keep track of the path.
-                elif neighbor.type == 'and' and self.attackgraph_dictionary[current_node].is_necessary == True:
-                    costs[neighbor.id] = tentative_g_score
-                    came_from[neighbor.id].append(current_node)
+                elif child.type == 'and' and self.attackgraph_dictionary[current_node].is_necessary == True:
+                    costs[child.id] = tentative_g_score
+                    came_from[child.id].append(current_node)
         return 0
 
-    def reconstruct_path(self, came_from, current, costs):
+    def reconstruct_path(
+            self,
+            came_from: dict,
+            current: AttackGraphNode,
+            start_node: AttackGraphNode,
+            costs: dict
+        ):
         """
         Reconstructs the backwards attack path from the start node to the given node with recursion.
 
@@ -300,17 +336,19 @@ class AttackSimulation:
         """
         cost = 0
         visited_set = set()
-        if current != self.start_node:
+        if current != start_node:
             # Reconstruct the path backwards from current until the start node is reached.
-            while current in came_from.keys() and current != self.start_node:
+            while current.id in came_from.keys() and current != start_node:
                 old_current = current
                 # Get all parent nodes to current in the path.
-                current = came_from[current]
-                # Condition for 'and' nodes.       
+                current = came_from[current.id]
+                # Condition for 'and' nodes.
                 if len(current) > 1:
                     for node in current:
                         if self.attackgraph_dictionary[node].is_necessary == True:
-                            path_cost, _= self.reconstruct_path(came_from, node, costs)
+                            path_cost, _= self.reconstruct_path(
+                                came_from, node, start_node, costs
+                            )
                             cost += path_cost + costs[old_current]
                             self.path[node].append(self.attackgraph_dictionary[old_current])
                             visited_set.add(old_current)
@@ -319,16 +357,16 @@ class AttackSimulation:
                 # Condition for 'or' nodes.
                 else:
                     current = current[0]
-                    if old_current not in visited_set:
-                        visited_set.add(old_current)
-                        self.visited.append(self.attackgraph_dictionary[old_current])
-                        if self.attackgraph_dictionary[old_current] not in self.path[current]:
-                            cost += costs[old_current]
-                    if self.attackgraph_dictionary[old_current] not in self.path[current]:
-                        self.path[current].append(self.attackgraph_dictionary[old_current])
-                
-            self.visited.append(self.attackgraph_dictionary[self.start_node])
-            visited_set.add(self.start_node)
+                    if old_current.id not in visited_set:
+                        visited_set.add(old_current.id)
+                        self.visited.append(old_current)
+                        if old_current not in self.path[current.id]:
+                            cost += costs[old_current.id]
+                    if old_current not in self.path[current.id]:
+                        self.path[current.id].append(old_current)
+
+            self.visited.append(start_node)
+            visited_set.add(start_node.id)
         return cost, old_current
 
     def get_costs(self):
