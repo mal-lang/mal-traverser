@@ -1,11 +1,8 @@
 import unittest
-import maltoolbox.attackgraph.attackgraph
-import maltoolbox.ingestors.neo4j
-import maltoolbox.model.model
-import maltoolbox.language.specification
-import maltoolbox.language.classes_factory
-import maltoolbox.attackgraph.attacker
-import maltoolbox.attackgraph.query
+
+from maltoolbox.language import LanguageGraph, LanguageClassesFactory
+from maltoolbox.model import Model
+from maltoolbox.attackgraph import Attacker, AttackGraph
 
 # Custom files.
 import constants
@@ -22,17 +19,14 @@ class TestAttackSimulation(unittest.TestCase):
 
     def setUp(self):
         # Create the language specification and LanguageClassesFactory instance.
-        lang_spec = maltoolbox.language.specification.load_language_specification_from_mar(constants.MAR_ARCHIVE)
-        lang_classes_factory = maltoolbox.language.classes_factory.LanguageClassesFactory(lang_spec)
-        lang_classes_factory.create_classes()
+        self.lang_graph = LanguageGraph.from_mar_archive(constants.MAR_ARCHIVE)
+        lang_classes_factory = LanguageClassesFactory(self.lang_graph)
 
         # Create mal-toolbox Model instance.
-        self.model = maltoolbox.model.model.Model("model", lang_spec, lang_classes_factory)
-        self.model.load_from_file(constants.MODEL_FILE)
+        self.model = Model.load_from_file(constants.MODEL_FILE, lang_classes_factory)
 
         # Generate mal-toolbox AttackGraph.
-        self.attackgraph = maltoolbox.attackgraph.attackgraph.AttackGraph()
-        self.attackgraph.generate_graph(lang_spec, self.model)
+        self.attackgraph = AttackGraph(self.lang_graph, self.model)
 
         # Change nodes with type 'defense' so that is_necessary=False, for testing purposes.
         for node in self.attackgraph.nodes:
@@ -43,19 +37,26 @@ class TestAttackSimulation(unittest.TestCase):
         # Add the attacker.
         self.model.attackers = []
         attacker_id = 1
-        attacker = maltoolbox.model.model.Attacker()
+        attacker_name = "Attacker1"
+        attacker = Attacker(attacker_name)
         self.model.add_attacker(attacker, attacker_id)
         self.model.attackers[0].entry_points = []
 
     @print_function_name
     def test_shortest_path_on_1_step_or_path(self):
         # Arrange
-        target_attack_step = "Credentials:6:attemptCredentialsReuse"
+        target_attack_step = self.attackgraph.get_node_by_full_name("Credentials:6:attemptCredentialsReuse").id
         entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse"]], [8, ["attemptCredentialsReuse"]]]
         actual_cost = 4
-        actual_visited_attack_steps = {"Attacker:1:firstSteps", "Credentials:6:attemptCredentialsReuse"}
+
+        expected_visited_full_names = {"Credentials:6:attemptCredentialsReuse"}
+        expected_visited_ids = {
+             self.attackgraph.get_node_by_full_name(name).id
+             for name in expected_visited_full_names
+        }
+
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
         
         # Act
@@ -66,17 +67,23 @@ class TestAttackSimulation(unittest.TestCase):
 
         # Assert
         self.assertEqual(cost, actual_cost)
-        self.assertEqual(visited, actual_visited_attack_steps)
+        expected_visited_ids.add(attack_simulation.start_node)
+        self.assertEqual(visited, expected_visited_ids)
 
     @print_function_name
     def test_shortest_path_on_6_step_with_and_in_path(self):
         # Arrange
-        target_attack_step = "Application:0:fullAccess"
+        target_attack_step = self.attackgraph.get_node_by_full_name("OS App:fullAccess").id
         entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
         actual_cost = 19
-        actual_visited_attack_steps = {"Attacker:1:firstSteps", "Application:0:attemptFullAccessFromSupplyChainCompromise", "Application:0:bypassSupplyChainAuditing", "Application:0:supplyChainAuditingBypassed", "Application:0:fullAccessFromSupplyChainCompromise", "Application:0:fullAccess"}
+        expected_visited_full_names = {"OS App:attemptFullAccessFromSupplyChainCompromise", "OS App:bypassSupplyChainAuditing", "OS App:supplyChainAuditingBypassed", "OS App:fullAccessFromSupplyChainCompromise", "OS App:fullAccess"}
+        expected_visited_ids = {
+             self.attackgraph.get_node_by_full_name(name).id
+             for name in expected_visited_full_names
+        }
+
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
         
         # Act
@@ -87,19 +94,22 @@ class TestAttackSimulation(unittest.TestCase):
         
         # Assert
         self.assertEqual(cost, actual_cost)
-        self.assertEqual(visited, actual_visited_attack_steps)
+        expected_visited_ids.add(attack_simulation.start_node)
+        self.assertEqual(visited, expected_visited_ids)
    
     @print_function_name
     def test_shortest_path_on_14_step_path(self):
         # Arrange
-        target_attack_step = "Credentials:9:propagateOneCredentialCompromised"
+        target_attack_step = self.attackgraph.get_node_by_full_name("Credentials:9:propagateOneCredentialCompromised").id
         entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
         actual_cost = 79
-        actual_visited_attack_steps = {"Attacker:1:firstSteps", "Credentials:6:attemptCredentialsReuse", "Credentials:6:credentialsReuse", "Credentials:6:attemptUse", "Credentials:6:use", "Credentials:6:attemptPropagateOneCredentialCompromised", \
+        expected_visited_full_names = {"Credentials:6:attemptCredentialsReuse", "Credentials:6:credentialsReuse", "Credentials:6:attemptUse", "Credentials:6:use", "Credentials:6:attemptPropagateOneCredentialCompromised", \
                                         "Credentials:6:propagateOneCredentialCompromised", "User:11:oneCredentialCompromised", "User:11:passwordReuseCompromise", "Credentials:9:attemptCredentialsReuse", "Credentials:9:credentialsReuse", \
                                         "Credentials:9:attemptUse", "Credentials:9:use", "Credentials:9:attemptPropagateOneCredentialCompromised", "Credentials:9:propagateOneCredentialCompromised"}
+        expected_visited_ids = {self.attackgraph.get_node_by_full_name(name).id for name in expected_visited_full_names}
+
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
         
         # Act
@@ -110,16 +120,17 @@ class TestAttackSimulation(unittest.TestCase):
 
         # Assert
         self.assertEqual(cost, actual_cost)
-        self.assertEqual(visited, actual_visited_attack_steps)
+        expected_visited_ids.add(attack_simulation.start_node)
+        self.assertEqual(visited, expected_visited_ids)
 
     @print_function_name
     def test_shortest_path_on_unreachable_attack_step(self):
         # Arrange
-        target_attack_step = "Credentials:5:extract"
+        target_attack_step = self.attackgraph.get_node_by_full_name("Credentials:5:extract").id
         entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
         actual_cost = 0
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
         
         # Act
@@ -135,12 +146,17 @@ class TestAttackSimulation(unittest.TestCase):
     @print_function_name
     def test_shortest_path_on_choice_between_2_paths_to_target(self):
         # Arrange
-        target_attack_step = "Application:0:fullAccess"
+        target_attack_step = self.attackgraph.get_node_by_full_name("OS App:fullAccess").id
         entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise", "fullAccess"]], [8, ["attemptCredentialsReuse"]]]
         actual_cost = 1
-        actual_visited_attack_steps = {"Attacker:1:firstSteps", "Application:0:fullAccess"}
+        expected_visited_full_names = {"OS App:fullAccess"}
+        expected_visited_ids = {
+             self.attackgraph.get_node_by_full_name(name).id
+             for name in expected_visited_full_names
+        }
+
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
         
         # Act
@@ -151,19 +167,20 @@ class TestAttackSimulation(unittest.TestCase):
 
         # Assert
         self.assertEqual(cost, actual_cost)
-        self.assertEqual(visited, actual_visited_attack_steps)
+        expected_visited_ids.add(attack_simulation.start_node)
+        self.assertEqual(visited, expected_visited_ids)
 
     @print_function_name
     def test_shortest_path_on_choice_between_4_paths_to_target(self):
         # Arrange
-        target_attack_step = "Data:4:accessDecryptedData"
+        target_attack_step = self.attackgraph.get_node_by_full_name("Data:4:accessDecryptedData").id
         actual_cost = 23
         entry_point_attack_steps = [[5, ["attemptCredentialTheft", "attemptReadFromReplica", "guessCredentialsFromHash", "weakCredentials"]], [6, ["attemptUse"]]]
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
 
-        node = self.attackgraph.get_node_by_id("Credentials:6:use")
+        node = self.attackgraph.get_node_by_full_name("Credentials:6:use")
         node.is_necessary = False
 
         # Act
@@ -177,11 +194,11 @@ class TestAttackSimulation(unittest.TestCase):
     @print_function_name
     def test_shortest_path_on_one_possible_path_but_5_entry_points(self):
             # Arrange
-            target_attack_step = "Data:4:accessDecryptedData"
+            target_attack_step = self.attackgraph.get_node_by_full_name("Data:4:accessDecryptedData").id
             actual_cost = 48
             entry_point_attack_steps = [[5, ["attemptCredentialTheft", "attemptReadFromReplica", "guessCredentialsFromHash", "weakCredentials"]], [6, ["attemptUse"]]]
             self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-            self.attackgraph.attach_attackers(self.model)
+            self.attackgraph.attach_attackers()
             attacker = self.attackgraph.attackers[0]
 
             # Act
@@ -195,10 +212,10 @@ class TestAttackSimulation(unittest.TestCase):
     @print_function_name
     def test_random_path_with_infinate_cost_budget_on_reachable_node(self):
         # Arrange
-        target_attack_step = "Application:0:bypassSupplyChainAuditing"
+        target_attack_step = self.attackgraph.get_node_by_full_name("OS App:bypassSupplyChainAuditing").id
         entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
 
         # Act
@@ -213,10 +230,10 @@ class TestAttackSimulation(unittest.TestCase):
     @print_function_name
     def test_random_path_with_infinate_cost_budget_on_unreachable_node(self):
         # Arrange
-        target_attack_step = "Credentials:8:extract"
+        target_attack_step = self.attackgraph.get_node_by_full_name("Credentials:8:extract").id
         entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse"]], [8, ["attemptCredentialsReuse"]]]
         self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-        self.attackgraph.attach_attackers(self.model)
+        self.attackgraph.attach_attackers()
         attacker = self.attackgraph.attackers[0]
 
         # Act
@@ -231,11 +248,11 @@ class TestAttackSimulation(unittest.TestCase):
     @print_function_name
     def test_random_path_with_infinate_cost_budget_on_reachable_node_containing_and_step(self):
             # Arrange
-            target_attack_step = "Application:0:fullAccessFromSupplyChainCompromise"
+            target_attack_step = self.attackgraph.get_node_by_full_name("OS App:fullAccessFromSupplyChainCompromise").id
             entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
             optimal_cost = 19
             self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-            self.attackgraph.attach_attackers(self.model)
+            self.attackgraph.attach_attackers()
             attacker = self.attackgraph.attackers[0]
 
             # Act
@@ -250,11 +267,11 @@ class TestAttackSimulation(unittest.TestCase):
     @print_function_name
     def test_random_path_with_restricted_cost_budget_on_reachable_target_node(self):
             # Arrange
-            target_attack_step = "Credentials:9:propagateOneCredentialCompromised"
+            target_attack_step = self.attackgraph.get_node_by_full_name("Credentials:9:propagateOneCredentialCompromised").id
             attacker_cost_budget = 1
             entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
             self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-            self.attackgraph.attach_attackers(self.model)
+            self.attackgraph.attach_attackers()
             attacker = self.attackgraph.attackers[0]
 
             # Act
@@ -273,7 +290,7 @@ class TestAttackSimulation(unittest.TestCase):
                 attacker_cost_budget = 10
                 entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
                 self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-                self.attackgraph.attach_attackers(self.model)
+                self.attackgraph.attach_attackers()
                 attacker = self.attackgraph.attackers[0]
 
                 # Act
@@ -289,7 +306,7 @@ class TestAttackSimulation(unittest.TestCase):
                 # Arrange
                 entry_point_attack_steps = [[5, ["attemptCredentialsReuse"]], [6, ["attemptCredentialsReuse", "guessCredentials"]], [0, ["softwareProductAbuse", "attemptFullAccessFromSupplyChainCompromise"]], [8, ["attemptCredentialsReuse"]]]
                 self.model = help_functions.add_entry_points_to_attacker(self.model, entry_point_attack_steps)
-                self.attackgraph.attach_attackers(self.model)
+                self.attackgraph.attach_attackers()
                 attacker = self.attackgraph.attackers[0]
 
                 # Act

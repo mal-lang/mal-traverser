@@ -1,10 +1,12 @@
+import maltoolbox.wrappers
 from py2neo import Graph
 import maltoolbox.attackgraph.attackgraph
 import maltoolbox.ingestors.neo4j
-import maltoolbox.model.model
-import maltoolbox.language.specification
 import maltoolbox.language.classes_factory
 import maltoolbox.attackgraph.analyzers.apriori
+
+from maltoolbox.attackgraph import AttackGraphNode
+from maltoolbox.wrappers import create_attack_graph
 
 from attack_simulation import AttackSimulation
 import constants
@@ -17,27 +19,27 @@ def main():
     neo4j_graph_connection = Graph(uri=constants.URI, user=constants.USERNAME, password=constants.PASSWORD, name=constants.DBNAME)
     print("Successful connection to Neo4j database.")
 
-    # Create the language specification and LanguageClassesFactory instance.
-    lang_spec = maltoolbox.language.specification.load_language_specification_from_mar(constants.MAR_ARCHIVE)
-    lang_classes_factory = maltoolbox.language.classes_factory.LanguageClassesFactory(lang_spec)
-    lang_classes_factory.create_classes()
-
-    # Create mal-toolbox Model instance.
-    model = maltoolbox.model.model.Model("model", lang_spec, lang_classes_factory)
-    model.load_from_file(constants.MODEL_FILE)
-
     # Generate mal-toolbox AttackGraph.
-    attackgraph = maltoolbox.attackgraph.attackgraph.AttackGraph()
-    attackgraph.generate_graph(lang_spec, model)
+    attackgraph = create_attack_graph(constants.MAR_ARCHIVE, constants.MODEL_FILE)
 
     # Select one attacker for the simulation.
     # Note: it is possible to add a custom attacker with the model module and thereafter you can run attackgraph.attach_attackers.
-    asset = model.get_asset_by_id(0)
-    model.attackers[0].entry_points.append((asset, ["attemptFullAccessFromSupplyChainCompromise"]))
-    attackgraph.attach_attackers(model)
     attacker = attackgraph.attackers[0]
-    attacker_entry_point = attacker.node.id
-    print("Attacker attack step id:", attacker_entry_point) 
+
+    # Create a firstStep node
+    attacker_node = AttackGraphNode(
+            type = 'or',
+            asset = None,
+            name = 'firstSteps',
+            ttc = {},
+            children = attacker.entry_points,
+            parents = [],
+            compromised_by = []
+    )
+    attackgraph.add_node(attacker_node)
+
+    attacker_entry_point = attacker_node.id
+    print("Attacker attack step id:", attacker_entry_point)
 
     # Calculate viability and necessity of nodes in attackgraph.
     # Note: earlier all defenses had the setting is_necessary=False.
@@ -46,7 +48,7 @@ def main():
     # Upload the attack graph and model to Neo4j.
     print("Starting uploading the model and attackgraph to Neo4j.")
     maltoolbox.ingestors.neo4j.ingest_attack_graph(attackgraph, constants.URI, constants.USERNAME, constants.PASSWORD, constants.DBNAME, delete=True)
-    maltoolbox.ingestors.neo4j.ingest_model(model, constants.URI, constants.USERNAME, constants.PASSWORD, constants.DBNAME, delete=False)
+    maltoolbox.ingestors.neo4j.ingest_model(attackgraph.model, constants.URI, constants.USERNAME, constants.PASSWORD, constants.DBNAME, delete=False)
     print("The model and attackgraph is uploaded to Neo4j.")
 
     # Create AttackSimulation.
@@ -55,7 +57,7 @@ def main():
     # Display algorithm options.
     attack_options = list(constants.ATTACK_OPTIONS.keys())
     print(f"{constants.PINK}Choose any of the options below. If you want to exit, press any key.{constants.STANDARD}")
-    help_functions.print_dictionary(constants.ATTACK_OPTIONS) 
+    help_functions.print_dictionary(constants.ATTACK_OPTIONS)
     user_input = input(f"Which simulation? {attack_options}:")
     
     if user_input == attack_options[0]:

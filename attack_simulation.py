@@ -1,6 +1,7 @@
 import maltoolbox.attackgraph.query
 import maltoolbox
 import maltoolbox.attackgraph.attackgraph
+from maltoolbox.attackgraph import Attacker, AttackGraph, AttackGraphNode
 from py2neo import Node, Relationship
 from collections import deque
 import heapq
@@ -11,7 +12,7 @@ import constants
 
 class AttackSimulation:
     
-    def __init__(self, attackgraph_instance, attacker, use_ttc=True):
+    def __init__(self, attackgraph_instance: AttackGraph, attacker: Attacker, use_ttc=True):
         """
         Initialize the AttackSimulation instance.
 
@@ -20,17 +21,37 @@ class AttackSimulation:
         - attacker: An instance of the Attacker class.
         - use_ttc: Boolean indicating whether Time-To-Compromise (TTC) is used. Default is True.
         """
+
+        attacker_node = AttackGraphNode(
+                type = 'or',
+                asset = None,
+                name = 'firstSteps',
+                ttc = {},
+                children = attacker.entry_points,
+                parents = [],
+                compromised_by = []
+        )
+        attackgraph_instance.add_node(attacker_node)
         self.attackgraph_instance = attackgraph_instance
-        self.attackgraph_dictionary = {node.id: node for node in attackgraph_instance.nodes}  # Create a dictionary for quick access to nodes by id
+
+        # Create a dictionary for quick access to nodes by id
+        self.attackgraph_dictionary = {
+            node.id: node for node in attackgraph_instance.nodes
+        }
         self.attacker = attacker
-        self.start_node = attacker.node.id
+        self.start_node = attacker_node.id
         self.target_node = None
         self.attacker_cost_budget = None
         self.use_ttc = use_ttc
         self.horizon = []
         self.visited = []
         self.path = {node.id: [] for node in attackgraph_instance.nodes}
-        self.cost_dictionary = self.get_costs()
+
+        full_name_to_cost = self.get_costs()
+        self.id_to_cost = {
+            attackgraph_instance.get_node_by_full_name(full_name).id: cost
+            for full_name, cost in full_name_to_cost.items()
+        }
 
     def set_target_node(self, target_node_id):
         """
@@ -67,21 +88,6 @@ class AttackSimulation:
         print(f"{constants.RED}Attacker Horizon{constants.STANDARD}")
         help_functions.print_dictionary(attack_surface_dict)
 
-    def add_children_to_horizon(self, node):
-        """
-        Add the horizon nodes to the set of visited nodes.
-
-        This method iterates over the children of the given node, adding each child's
-        ID to the set of visited nodes (self.visited) if it is not already present in the set.
-
-        Parameters:
-        - node: The AttackGraphNode whose children are to be added to the horizon.
-
-        """
-        for child in node.children:
-            if child.id not in self.visited:
-                self.horizon.add(child.id)
-
     def build_attack_surface_dict(self):
         """
         Build a dictionary with an integer as keys and Node ID:s as values.
@@ -91,7 +97,7 @@ class AttackSimulation:
         """
         dict = {}
         for i, node in enumerate(self.horizon):
-            dict[i+1] = [node.id, node.type, str(maltoolbox.attackgraph.query.is_node_traversable_by_attacker(node, self.attacker))]
+            dict[i+1] = [node.id, node.type, node.full_name, str(maltoolbox.attackgraph.query.is_node_traversable_by_attacker(node, self.attacker))]
         return dict
 
     def step_by_step_attack_simulation(self, neo4j_graph_connection):
@@ -101,8 +107,7 @@ class AttackSimulation:
         Parameters:
         - neo4j_graph_connection: The Neo4j Graph instance.
         """
-        self.attacker.reached_attack_steps = [self.attackgraph_dictionary[self.start_node]]
-        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
+        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
         self.visited = self.attacker.reached_attack_steps
 
         # Add all children nodes to the path attribute.     
@@ -134,10 +139,11 @@ class AttackSimulation:
                 # Update horizon if the node can be visited.
                 if attacked_node in self.horizon:
                     # Update the path.
-                    self.attacker.reached_attack_steps.append(attacked_node)
+                    self.attacker.compromise(attacked_node)
                     self.visited = self.attacker.reached_attack_steps
-                    self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
-                    self.horizon = [node for node in self.horizon if node != attacked_node]
+                    self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
+                    self.horizon = [node for node in self.horizon \
+                        if self.attacker not in node.compromised_by]
                    
                     # Upload attacker path and horizon.
                     self.upload_graph_to_neo4j(neo4j_graph_connection, add_horizon=True)
@@ -153,7 +159,7 @@ class AttackSimulation:
     def create_neo4j_node(self, neo4j_graph_connection, set_of_nodes, neo4j_node_dict, is_horizon_node=False):
         for node in set_of_nodes:
             if not node.id in neo4j_node_dict.keys():
-                asset_and_id = node.id.split(':')
+                asset_and_id = node.full_name.split(':')
                 asset_and_id = asset_and_id[0] + ':' + asset_and_id[1]
                 neo4j_node = Node(
                     str(asset_and_id),
@@ -163,7 +169,7 @@ class AttackSimulation:
                     full_name = node.id,
                     type = node.type,
                     ttc = str(node.ttc),
-                    cost = str(self.cost_dictionary[node.id]) if node.name != "firstSteps" else None,
+                    cost = str(self.id_to_cost[node.id]) if node.name != "firstSteps" else None,
                     is_necessary = str(node.is_necessary),
                     is_viable = str(node.is_viable),
                 )
@@ -233,7 +239,7 @@ class AttackSimulation:
         f_score = dict.fromkeys(node_ids, 0)
         f_score[self.start_node] = h_score[self.start_node]
         
-        costs = self.cost_dictionary
+        costs = self.id_to_cost
         costs_copy = costs.copy()
         current_node = self.start_node
         while len(open_set) > 0:
@@ -242,12 +248,12 @@ class AttackSimulation:
 
             # Stop when target node is found.
             if current_node == self.target_node:
-                self.cost_dictionary = costs_copy
+                self.id_to_cost = costs_copy
                 return self.reconstruct_path(came_from, current_node, costs_copy)[0]
 
             # Iterate over the attack surface nodes.
             current_neighbors = self.attackgraph_dictionary[current_node].children
-            for neighbor in current_neighbors:  
+            for neighbor in current_neighbors:
                 tentative_g_score = g_score[current_node] + costs[neighbor.id]
 
                 # Try the neighbor node with a lower g_score than the previous node.
@@ -258,7 +264,7 @@ class AttackSimulation:
                         came_from[neighbor.id].append(current_node)
                         g_score[neighbor.id] = tentative_g_score
                         f_score[neighbor.id] = tentative_g_score + h_score[neighbor.id] # TODO calculate the h_score for all nodes
-                        self.attacker.reached_attack_steps.append(neighbor)
+                        self.attacker.compromise(neighbor)
                         if neighbor.id not in open_set:
                             heapq.heappush(open_set, (f_score[neighbor.id], neighbor.id))
 
@@ -344,7 +350,7 @@ class AttackSimulation:
         cost_dictionary = {}
         for attackgraph_node in self.attackgraph_instance.nodes:
             ttc = attackgraph_node.ttc
-            if ttc == None:
+            if ttc == None or ttc == {}:
                 cost_dictionary[attackgraph_node.id] = 0
             elif ttc != None:
                 cost_dictionary[attackgraph_node.id] = help_functions.cost_from_ttc(ttc, 100)
@@ -363,11 +369,11 @@ class AttackSimulation:
         """
         self.attacker.reached_attack_steps = [self.attackgraph_dictionary[self.start_node]]
         self.visited = self.attacker.reached_attack_steps
-        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)       
+        self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
         horizon_set = {node.id for node in self.horizon}
         visited_set = {node.id for node in self.visited}
 
-        costs = self.cost_dictionary
+        costs = self.id_to_cost
         cost = 0
         while len(horizon_set-visited_set) > 0:
             node = random.choice(list(self.horizon))
@@ -388,7 +394,7 @@ class AttackSimulation:
                 self.path[parent_node_id].append(node)
                 self.visited.append(node)
                 visited_set.add(node.id)
-                self.attacker.reached_attack_steps.append(node)
+                self.attacker.compromise(node)
                 cost += costs[node.id]
 
                 # Check if the target node was selected (if the target node was specified).
@@ -396,7 +402,7 @@ class AttackSimulation:
                     break
                 
                 # Update attack surface.
-                self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attackgraph_instance, self.attacker)
+                self.horizon = maltoolbox.attackgraph.query.get_attack_surface(self.attacker)
                 horizon_set = {node.id for node in self.horizon}
         return cost
 
@@ -416,7 +422,7 @@ class AttackSimulation:
         node = self.attackgraph_dictionary[self.start_node]
         queue = deque([(node, 0)])  
         self.visited = [node]
-        costs = self.cost_dictionary
+        costs = self.id_to_cost
         while queue:
             node, cost = queue.popleft()
             # Explore the horizon of the current node.

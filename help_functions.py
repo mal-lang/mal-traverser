@@ -19,7 +19,7 @@ def print_dictionary(dict):
         if type(description) == list:
             description_str = ""
             for elem in description:
-                description_str += elem + " "
+                description_str += str(elem) + " "
             description = description_str
         print(f"{constants.BOLD}", description)
     print(f"{constants.STANDARD}",end="")
@@ -112,6 +112,6 @@ def process_sample(distribution):
 
 def add_entry_points_to_attacker(model, entry_point_attack_steps, attacker_index=0):
     for asset_id, attack_steps in entry_point_attack_steps:
-                asset = model.get_asset_by_id(asset_id)
-                model.attackers[attacker_index].entry_points.append((asset, attack_steps))
+        asset = model.get_asset_by_id(asset_id)
+        model.attackers[attacker_index].entry_points.append((asset, attack_steps))
     return model
