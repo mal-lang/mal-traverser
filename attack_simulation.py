@@ -43,13 +43,8 @@ class AttackSimulation:
         self.use_ttc = use_ttc
         self.horizon = []
         self.visited = []
-        self.path = {node.id: [] for node in attackgraph_instance.nodes}
+        # self.path = {node.id: [] for node in attackgraph_instance.nodes}
 
-        full_name_to_cost = costs or self.get_costs()
-        self.id_to_cost = {
-            attackgraph_instance.get_node_by_full_name(full_name).id: cost
-            for full_name, cost in full_name_to_cost.items()
-        }
 
     def set_target_node(self, target_node_id):
         """
@@ -310,6 +305,115 @@ class AttackSimulation:
                     costs[child.id] = tentative_g_score
                     came_from[child.id].append(current_node)
         return 0
+    
+
+    def cheapest_compromises_to_reach(
+            self,
+            start_nodes: list[AttackGraphNode],
+            end_node: AttackGraphNode,
+            min_costs: dict[int, int]
+    ):
+        """Return list of nodes that are the optimal way to get from
+        one or several start_nodes to end_node in terms of cost"""
+
+        path = [end_node]
+
+        if end_node in start_nodes:
+            return path
+
+        if end_node.type == 'or':
+            cheapest_parent = None
+            cheapest_parent_cost = float('inf')
+            for parent in end_node.parents:
+                cost_to_parent = min_costs[parent.id]
+                if cost_to_parent < cheapest_parent_cost:
+                    cheapest_parent = parent
+                    cheapest_parent_cost = cost_to_parent
+
+            if cheapest_parent:
+                path = self.cheapest_compromises_to_reach(
+                    start_nodes, cheapest_parent, min_costs
+                ) + path
+            else:
+                path = []
+
+        elif end_node.type == 'and':
+            for parent in end_node.parents:
+                if parent.is_necessary:
+                    path = self.cheapest_compromises_to_reach(
+                        start_nodes, parent, min_costs
+                    ) + path
+
+        return path
+
+    def multi_source_dijkstra_with_costs(
+            self,
+            graph: AttackGraph,
+            start_nodes: list[AttackGraphNode],
+            end_node: AttackGraphNode,
+            edge_costs: dict[int, int]
+        ) -> tuple[int, list[AttackGraphNode]]:
+        """Starting from one or several nodes, calculate the cost to reach
+        the specified end node.
+        
+        Return the cost to reach the end node and the list of visited
+        nodes of the optimal path"""
+
+        @dataclass(frozen=True, order=True)
+        class PriorityNode():
+            """Priority node used in heap queue"""
+            cost: int
+            node: AttackGraphNode = field(compare=False)
+
+            def __hash__(self):
+                return hash((self.node.id))
+
+        # Dictionary to store the minimum cost to reach each node
+        min_cost = {node.id: float('inf') for node in graph.nodes}
+
+        # Priority queue to process nodes based on the cost
+        priority_queue = []
+
+        # Initialize the priority queue with all start nodes
+        for node in start_nodes:
+            min_cost[node.id] = 0
+            heapq.heappush(priority_queue, PriorityNode(0, node))
+
+        # Process the nodes in the priority queue
+        while priority_queue:
+            current = heapq.heappop(priority_queue)
+            # If the current cost is higher than recorded cost, skip the node
+            if current.cost > min_cost[current.node.id]:
+                continue
+
+            # Explore the children of the current node
+            for child in current.node.children:
+                alt_cost = float('inf')
+
+                if child.type == 'or':
+                    # cost to reach or-node is the cost to reach its parent
+                    # and the edge cost to reach the child
+                    alt_cost = current.cost + edge_costs[child.id]
+
+                elif child.type == 'and':
+                    # cost to reach and-node is the cost to reach its
+                    # necessary parents and the edge cost to reach the child
+                    alt_cost = edge_costs[child.id]
+                    for parent in child.parents:
+                        if parent.is_necessary:
+                            alt_cost += min_cost[parent.id]
+
+                # If lower cost path to child is found,
+                # update and push it to the queue
+                if alt_cost < min_cost[child.id]:
+                    min_cost[child.id] = alt_cost
+                    heapq.heappush(
+                        priority_queue, PriorityNode(alt_cost, child)
+                    )
+
+        return min_cost[end_node.id], self.cheapest_compromises_to_reach(
+            start_nodes, end_node, min_cost
+        )
 
     def reconstruct_path(
             self,
@@ -382,7 +486,13 @@ class AttackSimulation:
             cost_dictionary = help_functions.load_costs_from_file()
         elif self.use_ttc == True:
             cost_dictionary = self.get_cost_from_ttc()
-        return cost_dictionary
+
+        edge_costs = {
+            self.attackgraph_instance.get_node_by_full_name(name).id: value
+            for name, value in cost_dictionary.items()
+        }
+
+        return edge_costs
 
     def get_cost_from_ttc(self):
         cost_dictionary = {}
