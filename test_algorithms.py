@@ -2,9 +2,12 @@ import unittest
 from maltoolbox.language import LanguageClassesFactory, LanguageGraph
 from maltoolbox.model import Model
 from maltoolbox.attackgraph import AttackGraph, AttackGraphNode
-from maltoolbox.attackgraph.analyzers.apriori import evaluate_viability_and_necessity
 
-from attack_simulation import AttackSimulation, Attacker
+from attack_simulation import Attacker
+from traversers import (
+    multi_source_dijkstra_with_costs,
+    cheapest_compromises_to_reach
+)
 import constants
 
 def print_function_name(func):
@@ -48,24 +51,15 @@ class TestAlgorithms(unittest.TestCase):
         edge_costs = {n.id: float('inf') for n in self.attackgraph.nodes}
         edge_costs[target_node.id] = 2
 
-        # Create the attack simulation
-        attack_simulation = AttackSimulation(self.attackgraph)
-
-        # Create the attacker and compromise entrypoints
-        attacker = Attacker("DijkstraAttacker")
-        self.attackgraph.add_attacker(attacker)
-        attacker.compromise(source_node)
-
         # Run dijkstra
-        min_cost, visited = attack_simulation.multi_source_dijkstra_with_costs(
-            self.attackgraph,
-            [source_node],
-            target_node,
-            edge_costs
-        )
+        min_costs = multi_source_dijkstra_with_costs(
+            self.attackgraph, [source_node], edge_costs)
+        assert min_costs[source_node.id] == 0
+        assert min_costs[target_node.id] == edge_costs.get(target_node.id)
 
+        visited = cheapest_compromises_to_reach(
+            [source_node], target_node, min_costs)
         assert visited == [source_node, target_node]
-        assert min_cost == edge_costs.get(target_node.id)
 
     @print_function_name
     def test_dijkstra_2_source_nodes_to_and_node(self):
@@ -108,12 +102,20 @@ class TestAlgorithms(unittest.TestCase):
         source_nodes = [node0, node1]
         target_node = node4
 
-        # Create the attack simulation
-        attack_simulation = AttackSimulation(graph)
-        min_cost, visited = attack_simulation.multi_source_dijkstra_with_costs(
-            graph, source_nodes, target_node, edge_costs)
+        min_costs = multi_source_dijkstra_with_costs(
+            graph, source_nodes, edge_costs)
 
-        assert min_cost == 4 + 8 + 16
+        for source_node in source_nodes:
+            assert min_costs[source_node.id] == 0
+
+        assert min_costs[target_node.id] == (
+            edge_costs[node2.id]
+            + edge_costs[node3.id]
+            + edge_costs[node4.id]
+        )
+
+        visited = cheapest_compromises_to_reach(
+            source_nodes, target_node, min_costs)
         assert visited == [node1, node3, node0, node2, node4]
 
     @print_function_name
@@ -134,19 +136,16 @@ class TestAlgorithms(unittest.TestCase):
         edge_costs[middle_node.id] = 4
         edge_costs[target_node.id] = 8
 
-        # Create the attack simulation
-        attack_simulation = AttackSimulation(self.attackgraph)
-
         # Run dijkstra
-        cost, visited = attack_simulation.multi_source_dijkstra_with_costs(
-            self.attackgraph,
-            [source_node],
-            target_node,
-            edge_costs
-        )
+        min_costs = multi_source_dijkstra_with_costs(
+            self.attackgraph, [source_node], edge_costs)
+        assert min_costs[source_node.id] == 0
+        assert min_costs[target_node.id] == \
+            edge_costs[middle_node.id] + edge_costs[target_node.id]
 
+        visited = cheapest_compromises_to_reach(
+            [source_node], target_node, min_costs)
         assert visited == [source_node, middle_node, target_node]
-        assert cost == edge_costs[middle_node.id] + edge_costs[target_node.id]
 
     @print_function_name
     def test_dijkstra_3_steps(self):
@@ -171,23 +170,19 @@ class TestAlgorithms(unittest.TestCase):
         edge_costs[third_node.id] = 8
         edge_costs[target_node.id] = 16
 
-        # Create the attack simulation
-        attack_simulation = AttackSimulation(self.attackgraph)
-
         # Run dijkstra
-        cost, visited = attack_simulation.multi_source_dijkstra_with_costs(
-            self.attackgraph,
-            [source_node],
-            target_node,
-            edge_costs
-        )
-
-        assert visited == [source_node, second_node, third_node, target_node]
-        assert cost == (
+        min_costs = multi_source_dijkstra_with_costs(
+            self.attackgraph, [source_node], edge_costs)
+        assert min_costs[source_node.id] == 0
+        assert min_costs[target_node.id] == (
             edge_costs[second_node.id]
             + edge_costs[third_node.id]
             + edge_costs[target_node.id]
         )
+
+        visited = cheapest_compromises_to_reach(
+            [source_node], target_node, min_costs)
+        assert visited == [source_node, second_node, third_node, target_node]
 
     @print_function_name
     def test_dijkstra_3_steps_with_and(self):
@@ -216,25 +211,25 @@ class TestAlgorithms(unittest.TestCase):
         edge_costs[third_node.id] = 4
         edge_costs[target_node.id] = 8
 
-        # Create the attack simulation
-        attack_simulation = AttackSimulation(self.attackgraph)
-
         # Run dijkstra
-        cost, visited = attack_simulation.multi_source_dijkstra_with_costs(
-            self.attackgraph,
-            source_nodes,
-            target_node,
-            edge_costs
-        )
+        min_costs = multi_source_dijkstra_with_costs(
+            self.attackgraph, source_nodes, edge_costs)
 
-        assert visited == [
-            source_node_1, source_node_2, second_node, third_node, source_node_1, target_node
-        ]
-        assert cost == (
+        for source_node in source_nodes:
+            assert min_costs[source_node.id] == 0
+
+        assert min_costs[target_node.id] == (
             edge_costs[second_node.id]
             + edge_costs[third_node.id]
             + edge_costs[target_node.id]
         )
+
+        visited = cheapest_compromises_to_reach(
+            source_nodes, target_node, min_costs)
+        assert visited == [
+            source_node_1, source_node_2, second_node,
+            third_node, source_node_1, target_node
+        ]
 
 
 if __name__ == '__main__':
