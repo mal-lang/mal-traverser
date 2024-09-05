@@ -6,7 +6,8 @@ from maltoolbox.attackgraph import AttackGraph, AttackGraphNode
 from attack_simulation import Attacker
 from traversers import (
     multi_source_dijkstra_with_costs,
-    cheapest_compromises_to_reach
+    cheapest_compromises_to_reach,
+    random_path
 )
 import constants
 
@@ -230,6 +231,155 @@ class TestAlgorithms(unittest.TestCase):
             source_node_1, source_node_2, second_node,
             third_node, source_node_1, target_node
         ]
+
+    @print_function_name
+    def test_random_path_with_target_deterministic(self):
+        """Test random path traverser for a path that can't go wrong"""
+
+        source_node = self.attackgraph.get_node_by_full_name( # or
+            "Application1:attemptUnsafeUserActivity")
+
+        second_node = self.attackgraph.get_node_by_full_name( # and
+            "Application1:attackerUnsafeUserActivityCapabilityWithoutReverseReach")
+
+        third_node = self.attackgraph.get_node_by_full_name( # or
+            "Application1:attackerUnsafeUserActivityCapability")
+
+        target_node = self.attackgraph.get_node_by_full_name( # and
+            "Application1:successfulUnsafeUserActivity")
+
+        edge_costs = {
+            node.id: float('inf') for node in self.attackgraph.nodes
+        }
+
+        edge_costs[source_node.id] = 0
+        edge_costs[second_node.id] = 0
+        edge_costs[third_node.id] = 0
+        edge_costs[target_node.id] = 0
+
+        cost, visited = random_path(
+            self.attackgraph,
+            source_node,
+            edge_costs,
+            target_node=target_node
+        )
+        assert cost == 0
+        assert visited == [source_node, second_node, third_node, target_node]
+
+    @print_function_name
+    def test_random_path_with_target_impossible(self):
+        """Random path when there is no possible next step from source"""
+
+        source_node = self.attackgraph.get_node_by_full_name( # or
+            "Application1:softwareCheck")
+
+        target_node = self.attackgraph.get_node_by_full_name( # and
+            "Application1:fullAccess")
+
+        edge_costs = {
+            node.id: 1 for node in self.attackgraph.nodes
+        }
+
+        cost, visited = random_path(
+            self.attackgraph,
+            source_node,
+            edge_costs,
+            target_node=target_node
+        )
+        assert cost == 0
+        assert visited == [source_node]
+
+    @print_function_name
+    def test_random_path_with_budget_deterministic(self):
+        """Test random path traverser for a path that can't go wrong"""
+
+        source_node = self.attackgraph.get_node_by_full_name( # or
+            "Application1:attemptUnsafeUserActivity")
+
+        second_node = self.attackgraph.get_node_by_full_name( # and
+            "Application1:attackerUnsafeUserActivityCapabilityWithoutReverseReach")
+
+        third_node = self.attackgraph.get_node_by_full_name( # or
+            "Application1:attackerUnsafeUserActivityCapability")
+
+        target_node = self.attackgraph.get_node_by_full_name( # and
+            "Application1:successfulUnsafeUserActivity")
+
+        edge_costs = {
+            node.id: float('inf') for node in self.attackgraph.nodes
+        }
+
+        edge_costs[source_node.id] = 1
+        edge_costs[second_node.id] = 1
+        edge_costs[third_node.id] = 1
+        edge_costs[target_node.id] = 1
+
+        # Budget 1 will reach only the second node
+        cost, visited = random_path(
+            self.attackgraph,
+            source_node,
+            edge_costs,
+            target_node=target_node,
+            attacker_cost_budget=1
+        )
+        assert cost == 1
+        assert visited == [source_node, second_node]
+
+        # Budget 2 will reach the second node
+        cost, visited = random_path(
+            self.attackgraph,
+            source_node,
+            edge_costs,
+            target_node=target_node,
+            attacker_cost_budget=2
+        )
+        assert cost == 2
+        assert visited == [source_node, second_node, third_node]
+
+        # Budget 3 will reach the target
+        cost, visited = random_path(
+            self.attackgraph,
+            source_node,
+            edge_costs,
+            target_node=target_node,
+            attacker_cost_budget=3
+        )
+        assert cost == 3
+        assert visited == [source_node, second_node, third_node, target_node]
+
+        # Infinite budget, but still only uses up 3
+        cost, visited = random_path(
+            self.attackgraph,
+            source_node,
+            edge_costs,
+            target_node=target_node,
+            attacker_cost_budget=float('inf')
+        )
+        assert cost == 3
+        assert visited == [source_node, second_node, third_node, target_node]
+
+    @print_function_name
+    def test_random_path_with_budget_no_targets(self):
+        """Test random path traverser"""
+
+        source_node = self.attackgraph.get_node_by_full_name( # or
+            "Application1:attemptUnsafeUserActivity")
+
+        edge_costs = {
+            node.id: 1 for node in self.attackgraph.nodes
+        }
+
+        # Budget will affect reach
+        for given_budget in range(10):
+            cost, visited = random_path(
+                self.attackgraph,
+                source_node,
+                edge_costs,
+                attacker_cost_budget=given_budget
+            )
+            assert cost == given_budget
+            assert len(visited) == given_budget + 1
+
 
 
 if __name__ == '__main__':

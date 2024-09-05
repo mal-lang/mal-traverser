@@ -47,7 +47,7 @@ def calculate_cost_and_save_as_json(node_list, output_file):
     with open(output_file, 'w') as file:
         json.dump(costs_dict, file)
 
-def load_costs_from_file():
+def load_costs_from_file(filename):
     """
     Load cost from file.
     
@@ -55,7 +55,7 @@ def load_costs_from_file():
     costs_dict      - dictionary
     """
     try:
-        with open(constants.COST_FILE, 'r') as file:
+        with open(filename, 'r') as file:
             costs_dict = json.load(file)
         return costs_dict
     except (FileNotFoundError, json.JSONDecodeError):

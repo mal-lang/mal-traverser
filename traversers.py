@@ -11,13 +11,13 @@ import heapq
 import random
 
 
-def random_path_2(
+def random_path(
         attackgraph: AttackGraph,
-        start_node: AttackGraphNode,
+        start_nodes: list[AttackGraphNode],
         costs: dict[int, int],
         target_node: AttackGraphNode = None,
         attacker_cost_budget: int = None,
-    ):
+    ) -> int:
     """
     Generate a random attack path in the attack graph,
     considering attacker cost budget and/or target node.
@@ -34,11 +34,11 @@ def random_path_2(
     attacker = Attacker("RandomAttacker")
     attackgraph.add_attacker(
         attacker,
-        entry_points=[start_node],
-        reached_attack_steps=[start_node]
+        entry_points=[n.id for n in start_nodes],
+        reached_attack_steps=[n.id for n in start_nodes]
     )
 
-    visited = [start_node]
+    visited = start_nodes
     horizon = get_attack_surface(attacker)
     horizon_set = {node.id for node in horizon}
     visited_set = {node.id for node in visited}
@@ -52,20 +52,24 @@ def random_path_2(
         if node not in visited:
 
             # Check if the cost is within cost budget.
-            if attacker_cost_budget and cost + costs[node.id] > attacker_cost_budget:
+            if attacker_cost_budget is not None \
+               and cost + costs[node.id] > attacker_cost_budget:
                 break
 
             # Find a parent node and update path.
-            parent_node_id = start_node
+            parent_node_id = None
             for parent_node in node.parents:
                 if parent_node in attacker.reached_attack_steps:
                     parent_node_id = parent_node.id
                     break
 
-            path[parent_node_id].append(node)
+            if parent_node_id:
+                path[parent_node_id].append(node)
+
             visited.append(node)
             visited_set.add(node.id)
             attacker.compromise(node)
+
             cost += costs[node.id]
 
             # Check if the target node was reached.
@@ -76,15 +80,15 @@ def random_path_2(
             horizon = get_attack_surface(attacker)
             horizon_set = {node.id for node in horizon}
 
-    return cost
+    return cost, visited
 
 
 def bfs(
         attackgraph: AttackGraph,
-        start_node: AttackGraphNode,
+        start_nodes: list[AttackGraphNode],
         costs: dict[int, int],
         attacker_cost_budget: int
-    ):
+    ) -> tuple[int, list[AttackGraphNode]]:
     """
     Perform Breadth-First Search (BFS) on an attack graph from start_node.
 
@@ -96,10 +100,9 @@ def bfs(
     Returns:
     - cost: total cost of the paths explored within attacker's cost budget.
     """
-    # Start BFS from the start node with distance 0.
-    node = start_node
-    queue = deque([(node, 0)])
-    visited = [node]
+    # Start BFS from the start nodes with distance 0.
+    queue = deque([(start_node, 0) for start_node in start_nodes])
+    visited = start_nodes
     path = {node.id: [] for node in attackgraph.nodes}
 
     while queue:
@@ -111,7 +114,8 @@ def bfs(
                 visited.append(child_node)
                 queue.append((child_node, next_cost))
                 path[node.id].append(child_node)
-    return cost
+
+    return cost, visited
 
 
 def cheapest_compromises_to_reach(
